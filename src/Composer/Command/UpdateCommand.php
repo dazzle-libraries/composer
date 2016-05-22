@@ -28,7 +28,7 @@ use Symfony\Component\Console\Question\Question;
  * @author Jordi Boggiano <j.boggiano@seld.be>
  * @author Nils Adermann <naderman@naderman.de>
  */
-class UpdateCommand extends Command
+class UpdateCommand extends BaseCommand
 {
     protected function configure()
     {
@@ -43,7 +43,6 @@ class UpdateCommand extends Command
                 new InputOption('dev', null, InputOption::VALUE_NONE, 'Enables installation of require-dev packages (enabled by default, only present for BC).'),
                 new InputOption('no-dev', null, InputOption::VALUE_NONE, 'Disables installation of require-dev packages.'),
                 new InputOption('lock', null, InputOption::VALUE_NONE, 'Only updates the lock file hash to suppress warning about the lock file being out of date.'),
-                new InputOption('no-plugins', null, InputOption::VALUE_NONE, 'Disables all plugins.'),
                 new InputOption('no-custom-installers', null, InputOption::VALUE_NONE, 'DEPRECATED: Use no-plugins instead.'),
                 new InputOption('no-autoloader', null, InputOption::VALUE_NONE, 'Skips autoloader generation'),
                 new InputOption('no-scripts', null, InputOption::VALUE_NONE, 'Skips the execution of all scripts defined in composer.json file.'),
@@ -56,6 +55,7 @@ class UpdateCommand extends Command
                 new InputOption('prefer-stable', null, InputOption::VALUE_NONE, 'Prefer stable versions of dependencies.'),
                 new InputOption('prefer-lowest', null, InputOption::VALUE_NONE, 'Prefer lowest versions of dependencies.'),
                 new InputOption('interactive', 'i', InputOption::VALUE_NONE, 'Interactive interface with autocompletion to select the packages to update.'),
+                new InputOption('root-reqs', null, InputOption::VALUE_NONE, 'Restricts the update to your first degree dependencies.'),
             ))
             ->setHelp(<<<EOT
 The <info>update</info> command reads the composer.json file from the
@@ -99,6 +99,20 @@ EOT
 
         if ($input->getOption('interactive')) {
             $packages = $this->getPackagesInteractively($io, $input, $output, $composer, $packages);
+        }
+
+        if ($input->getOption('root-reqs')) {
+            $require = array_keys($composer->getPackage()->getRequires());
+            if (!$input->getOption('no-dev')) {
+                $requireDev = array_keys($composer->getPackage()->getDevRequires());
+                $require = array_merge($require, $requireDev);
+            }
+
+            if (!empty($packages)) {
+                $packages = array_intersect($packages, $require);
+            } else {
+                $packages = $require;
+            }
         }
 
         $composer->getDownloadManager()->setOutputProgress(!$input->getOption('no-progress'));

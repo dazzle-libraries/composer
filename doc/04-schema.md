@@ -6,8 +6,7 @@ This chapter will explain all of the fields available in `composer.json`.
 
 We have a [JSON schema](http://json-schema.org) that documents the format and
 can also be used to validate your `composer.json`. In fact, it is used by the
-`validate` command. You can find it at:
-[`res/composer-schema.json`](https://github.com/composer/composer/blob/master/res/composer-schema.json).
+`validate` command. You can find it at: https://getcomposer.org/schema.json
 
 ## Root Package
 
@@ -197,10 +196,10 @@ The authors of the package. This is an array of objects.
 
 Each author object can have following properties:
 
-* **name:** The author's name. Usually his real name.
+* **name:** The author's name. Usually their real name.
 * **email:** The author's email address.
 * **homepage:** An URL to the author's website.
-* **role:** The authors' role in the project (e.g. developer or translator)
+* **role:** The author's role in the project (e.g. developer or translator)
 
 An example:
 
@@ -238,6 +237,7 @@ Support information includes the following:
 * **irc:** IRC channel for support, as irc://server/channel.
 * **source:** URL to browse or download the sources.
 * **docs:** URL to the documentation.
+* **rss:** URL to the RSS feed.
 
 An example:
 
@@ -361,7 +361,7 @@ will not be allowed to be installed together with your package.
 Note that when specifying ranges like `<1.0 >=1.1` in a `conflict` link,
 this will state a conflict with all versions that are less than 1.0 *and* equal
 or newer than 1.1 at the same time, which is probably not what you want. You
-probably want to go for `<1.0 | >=1.1` in this case.
+probably want to go for `<1.0 || >=1.1` in this case.
 
 #### replace
 

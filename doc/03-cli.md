@@ -15,6 +15,7 @@ The following options are available with every command:
 * **--help (-h):** Display help information.
 * **--quiet (-q):** Do not output any message.
 * **--no-interaction (-n):** Do not ask any interactive question.
+* **--no-plugins:** Disables plugins.
 * **--working-dir (-d):** If specified, use the given directory as working directory.
 * **--profile:** Display timing and memory usage information
 * **--ansi:** Force ANSI output.
@@ -50,6 +51,11 @@ php composer.phar init
   in format `foo/bar:1.0.0`.
 * **--require-dev:** Development requirements, see **--require**.
 * **--stability (-s):** Value for the `minimum-stability` field.
+* **--repository:** Provide one (or more) custom repositories. They will be stored
+  in the generated composer.json, and used for auto-completion when prompting for
+  the list of requires. Every repository can be either an HTTP URL pointing
+  to a `composer` repository or a JSON string which similar to what the
+  [repositories](04-schema.md#repositories) key accepts.
 
 ## install
 
@@ -91,7 +97,6 @@ resolution.
   generation skips the `autoload-dev` rules.
 * **--no-autoloader:** Skips autoloader generation.
 * **--no-scripts:** Skips execution of scripts defined in `composer.json`.
-* **--no-plugins:** Disables plugins.
 * **--no-progress:** Removes the progress display that can mess with some
   terminals or scripts which don't handle backspace characters.
 * **--optimize-autoloader (-o):** Convert PSR-0/4 autoloading to classmap to get a faster
@@ -136,7 +141,6 @@ php composer.phar update vendor/*
 * **--no-dev:** Skip installing packages listed in `require-dev`. The autoloader generation skips the `autoload-dev` rules.
 * **--no-autoloader:** Skips autoloader generation.
 * **--no-scripts:** Skips execution of scripts defined in `composer.json`.
-* **--no-plugins:** Disables plugins.
 * **--no-progress:** Removes the progress display that can mess with some
   terminals or scripts which don't handle backspace characters.
 * **--optimize-autoloader (-o):** Convert PSR-0/4 autoloading to classmap to get a faster
@@ -147,6 +151,7 @@ php composer.phar update vendor/*
 * **--lock:** Only updates the lock file hash to suppress warning about the
   lock file being out of date.
 * **--with-dependencies:** Add also all dependencies of whitelisted packages to the whitelist.
+* **--root-reqs:** Restricts the update to your first degree dependencies.
 * **--prefer-stable:** Prefer stable versions of dependencies.
 * **--prefer-lowest:** Prefer lowest versions of dependencies. Useful for testing minimal
   versions of requirements, generally used with `--prefer-stable`.
@@ -190,6 +195,9 @@ php composer.phar require vendor/package:2.* vendor/package2:dev-master
   can take a bit of time to run so it is currently not done by default.
 * **--classmap-authoritative (-a):** Autoload classes from the classmap only.
   Implicitly enables `--optimize-autoloader`.
+* **--prefer-stable:** Prefer stable versions of dependencies.
+* **--prefer-lowest:** Prefer lowest versions of dependencies. Useful for testing minimal
+  versions of requirements, generally used with `--prefer-stable`.
 
 ## remove
 
@@ -228,17 +236,21 @@ directory.
 This is merely a helper to manage a project stored in a central location that
 can hold CLI tools or Composer plugins that you want to have available everywhere.
 
-This can be used to install CLI utilities globally and if you add
-`$COMPOSER_HOME/vendor/bin` to your `$PATH` environment variable. Here is an
-example:
+This can be used to install CLI utilities globally. Here is an example:
 
 ```sh
-php composer.phar global require fabpot/php-cs-fixer:dev-master
+php composer.phar global require fabpot/php-cs-fixer
 ```
 
-Now the `php-cs-fixer` binary is available globally (assuming you adjusted
-your PATH). If you wish to update the binary later on you can just run a
-global update:
+Now the `php-cs-fixer` binary is available globally. Just make sure your global
+[vendor binaries](articles/vendor-binaries.md) directory is in your `$PATH`
+environment variable, you can get its location with the following command :
+
+```sh
+php composer.phar global config bin-dir --absolute
+```
+
+If you wish to update the binary later on you can just run a global update:
 
 ```sh
 php composer.phar global update
@@ -266,6 +278,14 @@ To list all of the available packages, you can use the `show` command.
 
 ```sh
 php composer.phar show
+```
+
+To filter the list you can pass a package mask using wildcards.
+
+```sh
+php composer.phar show monolog/*
+
+monolog/monolog 1.19.0 Sends your logs to files, sockets, inboxes, databases and various web services
 ```
 
 If you want to see the details of a certain package, you can pass the package
@@ -299,10 +319,34 @@ php composer.phar show monolog/monolog 1.0.2
 
 ### Options
 
-* **--installed (-i):** List the packages that are installed.
+* **--latest (-l):** List all installed packages including their latest version.
+* **--all (-a):** List all packages available in all your repositories.
+* **--installed (-i):** List the packages that are installed (this is enabled by default, and deprecated).
 * **--platform (-p):** List only platform packages (php & extensions).
 * **--self (-s):** List the root package info.
-* **--tree (-t):** List the dependencies as a tree. Only usable when giving a single package name or combined with `-i`.
+* **--tree (-t):** List your dependencies as a tree. If you pass a package name it will show the dependency tree for that package.
+* **--name-only (-N):** List package names only.
+* **--path (-P):** List package paths.
+* **--outdated (-o):** Implies --latest, but this lists *only* packages that have a newer version available.
+* **--direct (-D):** Restricts the list of packages to your direct dependencies.
+
+## outdated
+
+The `outdated` command shows a list of installed packages that have updates available,
+including their current and latest versions. This is basically an alias for
+`composer show -lo`.
+
+The color coding is as such:
+
+- **green**: Dependency is in the latest version and is up to date.
+- **yellow**: Dependency has a new version available that includes backwards compatibility breaks according to semver, so upgrade when
+  you can but it may involve work.
+- **red**: Dependency has a new version that is semver-compatible and you should upgrade it.
+
+### Options
+
+* **--all (-a):** Show all packages, not just outdated (alias for `composer show -l`).
+* **--direct (-D):** Restricts the list of packages to your direct dependencies.
 
 ## browse / home
 
@@ -319,8 +363,13 @@ Lists all packages suggested by currently installed set of packages. You can
 optionally pass one or multiple package names in the format of `vendor/package`
 to limit output to suggestions made by those packages only.
 
+Use the `--by-package` or `--by-suggestion` flags to group the output by
+the package offering the suggestions or the suggested packages respectively.
+
 ### Options
 
+* **--by-package:** Groups output by suggesting package.
+* **--by-suggestion:** Groups output by suggested package.
 * **--no-dev:** Excludes suggestions from `require-dev` packages.
 * **--verbose (-v):** Increased verbosity adds suggesting package name and
   reason for suggestion.
@@ -328,34 +377,67 @@ to limit output to suggestions made by those packages only.
 ## depends
 
 The `depends` command tells you which other packages depend on a certain
-package. You can specify which link types (`require`, `require-dev`)
-should be included in the listing. By default both are used.
+package. As with installation `require-dev` relationships are only considered
+for the root package.
 
 ```sh
-php composer.phar depends --link-type=require monolog/monolog
-
-nrk/monolog-fluent requires monolog/monolog (~1.8)
-poc/poc requires monolog/monolog (^1.6)
-propel/propel requires monolog/monolog (1.*)
-symfony/monolog-bridge requires monolog/monolog (>=1.2)
-symfony/symfony requires monolog/monolog (~1)
+php composer.phar depends doctrine/lexer
+ doctrine/annotations v1.2.7 requires doctrine/lexer (1.*)
+ doctrine/common      v2.6.1 requires doctrine/lexer (1.*)
 ```
 
-If you want, for example, find any installed package that is **not** allowing
-Symfony version 3 or one of its components, you can run the following command:
+You can optionally specify a version constraint after the package to limit the
+search.
+
+Add the `--tree` or `-t` flag to show a recursive tree of why the package is
+depended upon, for example:
 
 ```sh
-php composer.phar depends symfony/symfony --with-replaces -im ^3.0
+php composer.phar depends psr/log -t
+psr/log 1.0.0 Common interface for logging libraries
+|- aboutyou/app-sdk 2.6.11 (requires psr/log 1.0.*)
+|  `- __root__ (requires aboutyou/app-sdk ^2.6)
+|- monolog/monolog 1.17.2 (requires psr/log ~1.0)
+|  `- laravel/framework v5.2.16 (requires monolog/monolog ~1.11)
+|     `- __root__ (requires laravel/framework ^5.2)
+`- symfony/symfony v3.0.2 (requires psr/log ~1.0)
+   `- __root__ (requires symfony/symfony ^3.0)
 ```
 
 ### Options
 
-* **--link-type:** The link types to match on, can be specified multiple
-  times.
-* **--match-constraint (-m):** Filters the dependencies shown using this constraint.
-* **--invert-match-constraint (-i):** Turns --match-constraint around into a blacklist
-  instead of a whitelist.
-* **--with-replaces:** Search for replaced packages as well.
+* **--recursive (-r):** Recursively resolves up to the root package.
+* **--tree (-t):** Prints the results as a nested tree, implies -r.
+
+## prohibits
+
+The `prohibits` command tells you which packages are blocking a given package
+from being installed. Specify a version constraint to verify whether upgrades
+can be performed in your project, and if not why not. See the following
+example:
+
+```sh
+php composer.phar prohibits symfony/symfony 3.1
+ laravel/framework v5.2.16 requires symfony/var-dumper (2.8.*|3.0.*)
+```
+
+Note that you can also specify platform requirements, for example to check
+whether you can upgrade your server to PHP 8.0:
+
+```sh
+php composer.phar prohibits php:8
+ doctrine/cache        v1.6.0 requires php (~5.5|~7.0)
+ doctrine/common       v2.6.1 requires php (~5.5|~7.0)
+ doctrine/instantiator 1.0.5  requires php (>=5.3,<8.0-DEV)
+```
+
+As with `depends` you can request a recursive lookup, which will list all
+packages depending on the packages that cause the conflict.
+
+### Options
+
+* **--recursive (-r):** Recursively resolves up to the root package.
+* **--tree (-t):** Prints the results as a nested tree, implies -r.
 
 ## validate
 
@@ -413,7 +495,7 @@ If you have installed Composer for your entire system (see [global installation]
 you may have to run the command with `root` privileges
 
 ```sh
-sudo composer self-update
+sudo -H composer self-update
 ```
 
 ### Options
@@ -424,8 +506,10 @@ sudo composer self-update
 
 ## config
 
-The `config` command allows you to edit some basic Composer settings in either
-the local composer.json file or the global config.json file.
+The `config` command allows you to edit composer config settings and repositories
+in either the local `composer.json` file or the global `config.json` file.
+
+Additionally it lets you edit most properties in the local `composer.json`.
 
 ```sh
 php composer.phar config --list
@@ -438,6 +522,11 @@ php composer.phar config --list
 `setting-key` is a configuration option name and `setting-value1` is a
 configuration value.  For settings that can take an array of values (like
 `github-protocols`), more than one setting-value arguments are allowed.
+
+You can also edit the values of the following properties:
+
+`description`, `homepage`, `keywords`, `license`, `minimum-stability`,
+`name`, `prefer-stable`, `type` and `version`.
 
 See the [Config](06-config.md) chapter for valid configuration options.
 
@@ -472,6 +561,18 @@ If your repository requires more configuration options, you can instead pass its
 php composer.phar config repositories.foo '{"type": "vcs", "url": "http://svn.example.org/my-project/", "trunk-path": "master"}'
 ```
 
+### Modifying Extra Values
+
+In addition to modifying the config section, the `config` command also supports making
+changes to the extra section by using it the following way:
+
+```sh
+php composer.phar config extra.foo.bar value
+```
+
+The dots indicate array nesting, a max depth of 3 levels is allowed though. The above
+would set `"extra": { "foo": { "bar": "value" } }`.
+
 ## create-project
 
 You can use Composer to create new projects from an existing package. This is
@@ -502,15 +603,16 @@ By default the command checks for the packages on packagist.org.
 
 ### Options
 
-* **--repository-url:** Provide a custom repository to search for the package,
+* **--repository:** Provide a custom repository to search for the package,
   which will be used instead of packagist. Can be either an HTTP URL pointing
-  to a `composer` repository, or a path to a local `packages.json` file.
+  to a `composer` repository, a path to a local `packages.json` file, or a
+  JSON string which similar to what the [repositories](04-schema.md#repositories)
+  key accepts.
 * **--stability (-s):** Minimum stability of package. Defaults to `stable`.
 * **--prefer-source:** Install packages from `source` when available.
 * **--prefer-dist:** Install packages from `dist` when available.
 * **--dev:** Install packages listed in `require-dev`.
 * **--no-install:** Disables installation of the vendors.
-* **--no-plugins:** Disables plugins.
 * **--no-scripts:** Disables the execution of the scripts defined in the root
   package.
 * **--no-progress:** Removes the progress display that can mess with some
@@ -562,11 +664,22 @@ Lists the name, version and license of every package installed. Use
 
 ### Options
 
+* **--timeout:** Set the script timeout in seconds, or 0 for no timeout.
 * **--no-dev:** Disable dev mode
 * **--list:** List user defined scripts
 
 To run [scripts](articles/scripts.md) manually you can use this command,
 just give it the script name and optionally any required arguments.
+
+## exec
+
+Executes a vendored binary/script. You can execute any command and this will
+ensure that the Composer bin-dir is pushed on your PATH before the command
+runs.
+
+### Options
+
+* **--list:** List the available composer binaries
 
 ## diagnose
 
@@ -721,7 +834,7 @@ file to be used during SSL/TLS peer verification.
 
 The `COMPOSER_AUTH` var allows you to set up authentication as an environment variable.
 The contents of the variable should be a JSON formatted object containing http-basic,
-github-oauth, ... objects as needed, and following the
+github-oauth, bitbucket-oauth, ... objects as needed, and following the
 [spec from the config](06-config.md#gitlab-oauth).
 
 ### COMPOSER_DISCARD_CHANGES
@@ -736,5 +849,11 @@ If set to 1, this env var will make Composer behave as if you passed the
 ### COMPOSER_DISABLE_XDEBUG_WARN
 
 If set to 1, this env disables the warning about having xdebug enabled.
+
+### COMPOSER_ALLOW_SUPERUSER
+
+If set to 1, this env disables the warning about running commands as root/super user.
+It also disables automatic clearing of sudo sessions, so you should really only set this
+if you use Composer as super user at all times like in docker containers.
 
 &larr; [Libraries](02-libraries.md)  |  [Schema](04-schema.md) &rarr;

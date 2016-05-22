@@ -14,6 +14,7 @@ namespace Composer\Test;
 
 use Composer\Console\Application;
 use Composer\TestCase;
+use Symfony\Component\Console\Output\OutputInterface;
 
 class ApplicationTest extends TestCase
 {
@@ -24,16 +25,38 @@ class ApplicationTest extends TestCase
         $inputMock = $this->getMock('Symfony\Component\Console\Input\InputInterface');
         $outputMock = $this->getMock('Symfony\Component\Console\Output\OutputInterface');
 
-        $inputMock->expects($this->once())
+        $index = 0;
+        $inputMock->expects($this->at($index++))
+            ->method('getParameterOption')
+            ->with($this->equalTo(array('--working-dir', '-d')))
+            ->will($this->returnValue(false));
+
+        $inputMock->expects($this->at($index++))
             ->method('getFirstArgument')
             ->will($this->returnValue('list'));
 
+        $inputMock->expects($this->at($index++))
+            ->method('hasParameterOption')
+            ->with($this->equalTo('--no-plugins'))
+            ->will($this->returnValue(true));
+
         $index = 0;
+        $outputMock->expects($this->at($index++))
+            ->method("writeError");
+
         if (extension_loaded('xdebug')) {
+            $outputMock->expects($this->at($index++))
+                ->method("getVerbosity")
+                ->willReturn(OutputInterface::VERBOSITY_NORMAL);
+
             $outputMock->expects($this->at($index++))
                 ->method("write")
                 ->with($this->equalTo('<warning>You are running composer with xdebug enabled. This has a major impact on runtime performance. See https://getcomposer.org/xdebug</warning>'));
         }
+
+        $outputMock->expects($this->at($index++))
+            ->method("getVerbosity")
+            ->willReturn(OutputInterface::VERBOSITY_NORMAL);
 
         $outputMock->expects($this->at($index++))
             ->method("write")
@@ -43,7 +66,6 @@ class ApplicationTest extends TestCase
             define('COMPOSER_DEV_WARNING_TIME', time() - 1);
         }
 
-        $this->setExpectedException('RuntimeException');
         $application->doRun($inputMock, $outputMock);
     }
 
@@ -56,9 +78,20 @@ class ApplicationTest extends TestCase
         $inputMock = $this->getMock('Symfony\Component\Console\Input\InputInterface');
         $outputMock = $this->getMock('Symfony\Component\Console\Output\OutputInterface');
 
-        $inputMock->expects($this->once())
+        $index = 0;
+        $inputMock->expects($this->at($index++))
+            ->method('getParameterOption')
+            ->with($this->equalTo(array('--working-dir', '-d')))
+            ->will($this->returnValue(false));
+
+        $inputMock->expects($this->at($index++))
             ->method('getFirstArgument')
-            ->will($this->returnValue($command));
+            ->will($this->returnValue('list'));
+
+        $inputMock->expects($this->at($index++))
+            ->method('hasParameterOption')
+            ->with($this->equalTo('--no-plugins'))
+            ->will($this->returnValue(true));
 
         $outputMock->expects($this->never())
             ->method("writeln");
@@ -67,7 +100,6 @@ class ApplicationTest extends TestCase
             define('COMPOSER_DEV_WARNING_TIME', time() - 1);
         }
 
-        $this->setExpectedException('RuntimeException');
         $application->doRun($inputMock, $outputMock);
     }
 

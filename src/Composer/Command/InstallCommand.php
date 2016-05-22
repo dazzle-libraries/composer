@@ -26,7 +26,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * @author Konstantin Kudryashov <ever.zet@gmail.com>
  * @author Nils Adermann <naderman@naderman.de>
  */
-class InstallCommand extends Command
+class InstallCommand extends BaseCommand
 {
     protected function configure()
     {
@@ -39,7 +39,6 @@ class InstallCommand extends Command
                 new InputOption('dry-run', null, InputOption::VALUE_NONE, 'Outputs the operations but will not execute anything (implicitly enables --verbose).'),
                 new InputOption('dev', null, InputOption::VALUE_NONE, 'Enables installation of require-dev packages (enabled by default, only present for BC).'),
                 new InputOption('no-dev', null, InputOption::VALUE_NONE, 'Disables installation of require-dev packages.'),
-                new InputOption('no-plugins', null, InputOption::VALUE_NONE, 'Disables all plugins.'),
                 new InputOption('no-custom-installers', null, InputOption::VALUE_NONE, 'DEPRECATED: Use no-plugins instead.'),
                 new InputOption('no-autoloader', null, InputOption::VALUE_NONE, 'Skips autoloader generation'),
                 new InputOption('no-scripts', null, InputOption::VALUE_NONE, 'Skips the execution of all scripts defined in composer.json file.'),

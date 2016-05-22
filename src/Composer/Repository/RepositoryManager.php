@@ -58,6 +58,8 @@ class RepositoryManager
                 return $package;
             }
         }
+
+        return null;
     }
 
     /**
@@ -87,6 +89,18 @@ class RepositoryManager
     public function addRepository(RepositoryInterface $repository)
     {
         $this->repositories[] = $repository;
+    }
+
+    /**
+     * Adds a repository to the beginning of the chain
+     *
+     * This is useful when injecting additional repositories that should trump Packagist, e.g. from a plugin.
+     *
+     * @param RepositoryInterface $repository repository instance
+     */
+    public function prependRepository(RepositoryInterface $repository)
+    {
+        array_unshift($this->repositories, $repository);
     }
 
     /**
@@ -153,18 +167,5 @@ class RepositoryManager
     public function getLocalRepository()
     {
         return $this->localRepository;
-    }
-
-    /**
-     * Returns all local repositories for the project.
-     *
-     * @deprecated getLocalDevRepository is gone, so this is useless now, just use getLocalRepository instead
-     * @return array[WritableRepositoryInterface]
-     */
-    public function getLocalRepositories()
-    {
-        trigger_error('This method is deprecated, use getLocalRepository instead since the getLocalDevRepository is now gone', E_USER_DEPRECATED);
-
-        return array($this->localRepository);
     }
 }

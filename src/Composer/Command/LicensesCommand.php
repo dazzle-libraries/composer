@@ -25,7 +25,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * @author Benoît Merlet <benoit.merlet@gmail.com>
  */
-class LicensesCommand extends Command
+class LicensesCommand extends BaseCommand
 {
     protected function configure()
     {
@@ -112,8 +112,10 @@ EOT
     /**
      * Find package requires and child requires
      *
-     * @param RepositoryInterface $repo
-     * @param PackageInterface    $package
+     * @param  RepositoryInterface $repo
+     * @param  PackageInterface    $package
+     * @param  array               $bucket
+     * @return array
      */
     private function filterRequiredPackages(RepositoryInterface $repo, PackageInterface $package, $bucket = array())
     {

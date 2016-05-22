@@ -15,7 +15,7 @@ namespace Composer\Repository;
 use Composer\Package\Loader\ArrayLoader;
 use Composer\Package\PackageInterface;
 use Composer\Package\AliasPackage;
-use Composer\Semver\VersionParser;
+use Composer\Package\Version\VersionParser;
 use Composer\DependencyResolver\Pool;
 use Composer\Json\JsonFile;
 use Composer\Cache;
@@ -62,6 +62,7 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
 
     public function __construct(array $repoConfig, IOInterface $io, Config $config, EventDispatcher $eventDispatcher = null, RemoteFilesystem $rfs = null)
     {
+        parent::__construct();
         if (!preg_match('{^[\w.]+\??://}', $repoConfig['url'])) {
             // assume http as the default protocol
             $repoConfig['url'] = 'http://'.$repoConfig['url'];
@@ -136,6 +137,7 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
                         }
                     }
                 }
+                break;
             }
         }
     }
@@ -169,6 +171,7 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
                         }
                     }
                 }
+                break;
             }
         }
 
@@ -234,13 +237,7 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
             return array_keys($this->providerListing);
         }
 
-        // BC handling for old providers-includes
-        $providers = array();
-        foreach (array_keys($this->providerListing) as $provider) {
-            $providers[] = substr($provider, 2, -5);
-        }
-
-        return $providers;
+        return array();
     }
 
     protected function configurePackageTransportOptions(PackageInterface $package)
@@ -271,14 +268,20 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
         }
     }
 
-    public function whatProvides(Pool $pool, $name)
+    /**
+     * @param  Pool        $pool
+     * @param  string      $name          package name
+     * @param  bool        $bypassFilters If set to true, this bypasses the stability filtering, and forces a recompute without cache
+     * @return array|mixed
+     */
+    public function whatProvides(Pool $pool, $name, $bypassFilters = false)
     {
-        if (isset($this->providers[$name])) {
+        if (isset($this->providers[$name]) && !$bypassFilters) {
             return $this->providers[$name];
         }
 
-        // skip platform packages
-        if (preg_match(PlatformRepository::PLATFORM_PACKAGE_REGEX, $name) || '__root__' === $name) {
+        // skip platform packages, root package and composer-plugin-api
+        if (preg_match(PlatformRepository::PLATFORM_PACKAGE_REGEX, $name) || '__root__' === $name || 'composer-plugin-api' === $name) {
             return array();
         }
 
@@ -302,15 +305,7 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
             $url = str_replace(array('%package%', '%hash%'), array($name, $hash), $this->providersUrl);
             $cacheKey = 'provider-'.strtr($name, '/', '$').'.json';
         } else {
-            // BC handling for old providers-includes
-            $url = 'p/'.$name.'.json';
-
-            // package does not exist in this repo
-            if (!isset($this->providerListing[$url])) {
-                return array();
-            }
-            $hash = $this->providerListing[$url]['sha256'];
-            $cacheKey = null;
+            return array();
         }
 
         $packages = null;
@@ -365,12 +360,12 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
                         }
                     }
                 } else {
-                    if (!$pool->isPackageAcceptable(strtolower($version['name']), VersionParser::parseStability($version['version']))) {
+                    if (!$bypassFilters && !$pool->isPackageAcceptable(strtolower($version['name']), VersionParser::parseStability($version['version']))) {
                         continue;
                     }
 
                     // load acceptable packages in the providers
-                    $package = $this->createPackage($version, 'Composer\Package\Package');
+                    $package = $this->createPackage($version, 'Composer\Package\CompletePackage');
                     $package->setRepository($this);
 
                     if ($package instanceof AliasPackage) {
@@ -407,7 +402,18 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
             }
         }
 
-        return $this->providers[$name];
+        $result = $this->providers[$name];
+
+        // clean up the cache because otherwise using this puts the repo in an inconsistent state with a polluted unfiltered cache
+        // which is likely not an issue but might cause hard to track behaviors depending on how the repo is used
+        if ($bypassFilters) {
+            foreach ($this->providers[$name] as $uid => $provider) {
+                unset($this->providersByUid[$uid]);
+            }
+            unset($this->providers[$name]);
+        }
+
+        return $result;
     }
 
     /**
@@ -457,9 +463,6 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
 
         if (!empty($data['notify-batch'])) {
             $this->notifyUrl = $this->canonicalizeUrl($data['notify-batch']);
-        } elseif (!empty($data['notify_batch'])) {
-            // TODO remove this BC notify_batch support
-            $this->notifyUrl = $this->canonicalizeUrl($data['notify_batch']);
         } elseif (!empty($data['notify'])) {
             $this->notifyUrl = $this->canonicalizeUrl($data['notify']);
         }
@@ -511,6 +514,9 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
             $this->baseUrl = 'https://packagist.org';
             $this->lazyProvidersUrl = $this->canonicalizeUrl('https://packagist.org/p/%package%.json');
             $this->providersUrl = null;
+        } elseif (!empty($this->repoConfig['force-lazy-providers'])) {
+            $this->lazyProvidersUrl = $this->canonicalizeUrl('/p/%package%.json');
+            $this->providersUrl = null;
         }
 
         return $this->rootData = $data;
@@ -550,18 +556,6 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
                     $includedData = json_decode($this->cache->read($cacheKey), true);
                 } else {
                     $includedData = $this->fetchFile($url, $cacheKey, $metadata['sha256']);
-                }
-
-                $this->loadProviderListings($includedData);
-            }
-        } elseif (isset($data['providers-includes'])) {
-            // BC layer for old-style providers-includes
-            $includes = $data['providers-includes'];
-            foreach ($includes as $include => $metadata) {
-                if ($this->cache->sha256($include) === $metadata['sha256']) {
-                    $includedData = json_decode($this->cache->read($include), true);
-                } else {
-                    $includedData = $this->fetchFile($include, null, $metadata['sha256']);
                 }
 
                 $this->loadProviderListings($includedData);
@@ -606,14 +600,14 @@ class ComposerRepository extends ArrayRepository implements ConfigurableReposito
         return $packages;
     }
 
-    protected function createPackage(array $data, $class)
+    protected function createPackage(array $data, $class = 'Composer\Package\CompletePackage')
     {
         try {
             if (!isset($data['notification-url'])) {
                 $data['notification-url'] = $this->notifyUrl;
             }
 
-            $package = $this->loader->load($data, 'Composer\Package\CompletePackage');
+            $package = $this->loader->load($data, $class);
             if (isset($this->sourceMirrors[$package->getSourceType()])) {
                 $package->setSourceMirrors($this->sourceMirrors[$package->getSourceType()]);
             }

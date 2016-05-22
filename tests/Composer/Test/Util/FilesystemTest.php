@@ -32,15 +32,6 @@ class FilesystemTest extends TestCase
      */
     private $testFile;
 
-    /**
-     * @dataProvider providePathCouplesAsCode
-     */
-    public function testFindShortestPathCode($a, $b, $directory, $expected)
-    {
-        $fs = new Filesystem;
-        $this->assertEquals($expected, $fs->findShortestPathCode($a, $b, $directory));
-    }
-
     public function setUp()
     {
         $this->fs = new Filesystem;
@@ -56,6 +47,15 @@ class FilesystemTest extends TestCase
         if (is_file($this->testFile)) {
             $this->fs->removeDirectory(dirname($this->testFile));
         }
+    }
+
+    /**
+     * @dataProvider providePathCouplesAsCode
+     */
+    public function testFindShortestPathCode($a, $b, $directory, $expected, $static = false)
+    {
+        $fs = new Filesystem;
+        $this->assertEquals($expected, $fs->findShortestPathCode($a, $b, $directory, $static));
     }
 
     public function providePathCouplesAsCode()
@@ -94,6 +94,16 @@ class FilesystemTest extends TestCase
             array('/foo/bar_vendor', '/foo/bar', true, "dirname(__DIR__).'/bar'"),
             array('/foo/bar_vendor', '/foo/bar/src', true, "dirname(__DIR__).'/bar/src'"),
             array('/foo/bar_vendor/src2', '/foo/bar/src/lib', true, "dirname(dirname(__DIR__)).'/bar/src/lib'"),
+
+            // static use case
+            array('/tmp/test/../vendor', '/tmp/test', true, "__DIR__ . '/..'.'/test'", true),
+            array('/tmp/test/.././vendor', '/tmp/test', true, "__DIR__ . '/..'.'/test'", true),
+            array('C:/Temp', 'c:\Temp\..\..\test', true, "__DIR__ . '/..'.'/test'", true),
+            array('C:/Temp/../..', 'd:\Temp\..\..\test', true, "'d:/test'", true),
+            array('/foo/bar', '/foo/bar_vendor', true, "__DIR__ . '/..'.'/bar_vendor'", true),
+            array('/foo/bar_vendor', '/foo/bar', true, "__DIR__ . '/..'.'/bar'", true),
+            array('/foo/bar_vendor', '/foo/bar/src', true, "__DIR__ . '/..'.'/bar/src'", true),
+            array('/foo/bar_vendor/src2', '/foo/bar/src/lib', true, "__DIR__ . '/../..'.'/bar/src/lib'", true),
         );
     }
 
@@ -265,5 +275,34 @@ class FilesystemTest extends TestCase
         $this->assertTrue($result);
         $this->assertFalse(file_exists($symlinkedTrailingSlash));
         $this->assertFalse(file_exists($symlinked));
+    }
+
+    public function testJunctions()
+    {
+        @mkdir($this->workingDir . '/real/nesting/testing', 0777, true);
+        $fs = new Filesystem();
+
+        // Non-Windows systems do not support this and will return false on all tests, and an exception on creation
+        if (!defined('PHP_WINDOWS_VERSION_BUILD')) {
+            $this->assertFalse($fs->isJunction($this->workingDir));
+            $this->assertFalse($fs->removeJunction($this->workingDir));
+            $this->setExpectedException('LogicException', 'not available on non-Windows platform');
+        }
+
+        $target = $this->workingDir . '/real/../real/nesting';
+        $junction = $this->workingDir . '/junction';
+
+        // Create and detect junction
+        $fs->junction($target, $junction);
+        $this->assertTrue($fs->isJunction($junction));
+        $this->assertFalse($fs->isJunction($target));
+        $this->assertTrue($fs->isJunction($target . '/../../junction'));
+        $this->assertFalse($fs->isJunction($junction . '/../real'));
+        $this->assertTrue($fs->isJunction($junction . '/../junction'));
+
+        // Remove junction
+        $this->assertTrue(is_dir($junction));
+        $this->assertTrue($fs->removeJunction($junction));
+        $this->assertFalse(is_dir($junction));
     }
 }

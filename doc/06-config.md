@@ -17,7 +17,26 @@ in the PHP include path.
 ## preferred-install
 
 Defaults to `auto` and can be any of `source`, `dist` or `auto`. This option
-allows you to set the install method Composer will prefer to use.
+allows you to set the install method Composer will prefer to use. Can
+optionally be a hash of patterns for more granular install preferences.
+
+```json
+{
+    "config": {
+        "preferred-install": {
+            "my-organization/stable-package": "dist",
+            "my-organization/*": "source",
+            "partner-organization/*": "auto",
+            "*": "dist"
+        }
+    }
+}
+```
+
+> **Note:** Order matters. More specific patterns should be earlier than
+> more relaxed patterns. When mixing the string notation with the hash
+> configuration in global and package configurations the string notation
+> is translated to a `*` package pattern.
 
 ## store-auths
 
@@ -26,10 +45,12 @@ What to do after prompting for authentication, one of: `true` (always store),
 
 ## github-protocols
 
-Defaults to `["git", "https", "ssh"]`. A list of protocols to use when cloning
-from github.com, in priority order. You can reconfigure it to for example
-prioritize the https protocol if you are behind a proxy or have somehow bad
-performances with the git protocol.
+Defaults to `["https", "ssh", "git"]`. A list of protocols to use when cloning
+from github.com, in priority order. By default `git` is present but only if [secure-http](#secure-http)
+is disabled, as the git protocol is not encrypted. If you want your origin remote
+push URLs to be using https and not ssh (`git@github.com:...`), then set the protocol
+list to be only `["https"]` and Composer will stop overwriting the push URL to an ssh
+URL.
 
 ## github-oauth
 
@@ -53,6 +74,19 @@ instead and no network level encryption is performed. Enabling this is a
 security risk and is NOT recommended. The better way is to enable the
 php_openssl extension in php.ini.
 
+## secure-http
+
+Defaults to `true`. If set to true only HTTPS URLs are allowed to be
+downloaded via Composer. If you really absolutely need HTTP access to something
+then you can disable it, but using [Let's Encrypt](https://letsencrypt.org/) to
+get a free SSL certificate is generally a better alternative.
+
+## bitbucket-oauth
+
+A list of domain names and consumers. For example using `{"bitbucket.org":
+{"consumer-key": "myKey", "consumer-secret": "mySecret"}}`. [Read](https://confluence.atlassian.com/bitbucket/oauth-on-bitbucket-cloud-238027431.html)
+how to set up a consumer on Bitbucket.
+
 ## cafile
 
 Location of Certificate Authority file on local filesystem. In PHP 5.6+ you
@@ -68,7 +102,7 @@ capath must be a correctly hashed certificate directory.
 ## http-basic
 
 A list of domain names and username/passwords to authenticate against them. For
-example using `{"example.org": {"username": "alice", "password": "foo"}` as the
+example using `{"example.org": {"username": "alice", "password": "foo"}}` as the
 value of this option will let Composer authenticate against example.org.
 
 > **Note:** Authentication-related config options like `http-basic` and

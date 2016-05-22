@@ -20,7 +20,7 @@ use Composer\Factory;
 use Composer\Installer;
 use Composer\Json\JsonFile;
 use Composer\Json\JsonManipulator;
-use Composer\Semver\VersionParser;
+use Composer\Package\Version\VersionParser;
 use Composer\Plugin\CommandEvent;
 use Composer\Plugin\PluginEvents;
 use Composer\Repository\CompositeRepository;
@@ -47,6 +47,8 @@ class RequireCommand extends InitCommand
                 new InputOption('update-no-dev', null, InputOption::VALUE_NONE, 'Run the dependency update with the --no-dev option.'),
                 new InputOption('update-with-dependencies', null, InputOption::VALUE_NONE, 'Allows inherited dependencies to be updated with explicit dependencies.'),
                 new InputOption('ignore-platform-reqs', null, InputOption::VALUE_NONE, 'Ignore platform requirements (php & ext- packages).'),
+                new InputOption('prefer-stable', null, InputOption::VALUE_NONE, 'Prefer stable versions of dependencies.'),
+                new InputOption('prefer-lowest', null, InputOption::VALUE_NONE, 'Prefer lowest versions of dependencies.'),
                 new InputOption('sort-packages', null, InputOption::VALUE_NONE, 'Sorts packages when adding/updating a new dependency'),
                 new InputOption('optimize-autoloader', 'o', InputOption::VALUE_NONE, 'Optimize autoloader during autoloader dump'),
                 new InputOption('classmap-authoritative', 'a', InputOption::VALUE_NONE, 'Autoload classes from the classmap only. Implicitly enables `--optimize-autoloader`.'),
@@ -93,7 +95,7 @@ EOT
         $composerDefinition = $json->read();
         $composerBackup = file_get_contents($json->getPath());
 
-        $composer = $this->getComposer();
+        $composer = $this->getComposer(true, $input->getOption('no-plugins'));
         $repos = $composer->getRepositoryManager()->getRepositories();
 
         $platformOverrides = $composer->getConfig()->get('platform') ?: array();
@@ -143,7 +145,7 @@ EOT
 
         // Update packages
         $this->resetComposer();
-        $composer = $this->getComposer();
+        $composer = $this->getComposer(true, $input->getOption('no-plugins'));
         $composer->getDownloadManager()->setOutputProgress(!$input->getOption('no-progress'));
 
         $commandEvent = new CommandEvent(PluginEvents::COMMAND, 'require', $input, $output);
@@ -162,9 +164,16 @@ EOT
             ->setUpdateWhitelist(array_keys($requirements))
             ->setWhitelistDependencies($input->getOption('update-with-dependencies'))
             ->setIgnorePlatformRequirements($input->getOption('ignore-platform-reqs'))
+            ->setPreferStable($input->getOption('prefer-stable'))
+            ->setPreferLowest($input->getOption('prefer-lowest'))
         ;
 
-        $status = $install->run();
+        $exception = null;
+        try {
+            $status = $install->run();
+        } catch (\Exception $exception) {
+            $status = 1;
+        }
         if ($status !== 0) {
             if ($newlyCreated) {
                 $io->writeError("\n".'<error>Installation failed, deleting '.$file.'.</error>');
@@ -173,6 +182,9 @@ EOT
                 $io->writeError("\n".'<error>Installation failed, reverting '.$file.' to its original content.</error>');
                 file_put_contents($json->getPath(), $composerBackup);
             }
+        }
+        if ($exception) {
+            throw $exception;
         }
 
         return $status;

@@ -30,6 +30,7 @@ class GitHubDriver extends VcsDriver
     protected $tags;
     protected $branches;
     protected $rootIdentifier;
+    protected $repoData;
     protected $hasIssues;
     protected $infoCache = array();
     protected $isPrivate = false;
@@ -188,7 +189,7 @@ class GitHubDriver extends VcsDriver
                 }
             }
 
-            if (preg_match('{[a-f0-9]{40}}i', $identifier)) {
+            if ($composer && preg_match('{[a-f0-9]{40}}i', $identifier)) {
                 $this->cache->write($identifier, json_encode($composer));
             }
 
@@ -268,14 +269,24 @@ class GitHubDriver extends VcsDriver
         }
 
         if (!extension_loaded('openssl')) {
-            if ($io->isVerbose()) {
-                $io->writeError('Skipping GitHub driver for '.$url.' because the OpenSSL PHP extension is missing.');
-            }
+            $io->writeError('Skipping GitHub driver for '.$url.' because the OpenSSL PHP extension is missing.', true, IOInterface::VERBOSE);
 
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Gives back the loaded <github-api>/repos/<owner>/<repo> result
+     *
+     * @return array|null
+     */
+    public function getRepoData()
+    {
+        $this->fetchRootIdentifier();
+
+        return $this->repoData;
     }
 
     /**
@@ -402,25 +413,29 @@ class GitHubDriver extends VcsDriver
      */
     protected function fetchRootIdentifier()
     {
-        $repoDataUrl = $this->getApiUrl() . '/repos/'.$this->owner.'/'.$this->repository;
-
-        $repoData = JsonFile::parseJson($this->getContents($repoDataUrl, true), $repoDataUrl);
-        if (null === $repoData && null !== $this->gitDriver) {
+        if ($this->repoData) {
             return;
         }
 
-        $this->owner = $repoData['owner']['login'];
-        $this->repository = $repoData['name'];
+        $repoDataUrl = $this->getApiUrl() . '/repos/'.$this->owner.'/'.$this->repository;
 
-        $this->isPrivate = !empty($repoData['private']);
-        if (isset($repoData['default_branch'])) {
-            $this->rootIdentifier = $repoData['default_branch'];
-        } elseif (isset($repoData['master_branch'])) {
-            $this->rootIdentifier = $repoData['master_branch'];
+        $this->repoData = JsonFile::parseJson($this->getContents($repoDataUrl, true), $repoDataUrl);
+        if (null === $this->repoData && null !== $this->gitDriver) {
+            return;
+        }
+
+        $this->owner = $this->repoData['owner']['login'];
+        $this->repository = $this->repoData['name'];
+
+        $this->isPrivate = !empty($this->repoData['private']);
+        if (isset($this->repoData['default_branch'])) {
+            $this->rootIdentifier = $this->repoData['default_branch'];
+        } elseif (isset($this->repoData['master_branch'])) {
+            $this->rootIdentifier = $this->repoData['master_branch'];
         } else {
             $this->rootIdentifier = 'master';
         }
-        $this->hasIssues = !empty($repoData['has_issues']);
+        $this->hasIssues = !empty($this->repoData['has_issues']);
     }
 
     protected function attemptCloneFallback()

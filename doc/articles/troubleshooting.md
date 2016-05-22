@@ -190,6 +190,50 @@ composer update
 php /usr/local/bin/composer update
 ```
 
+Or, you can add aliases for composer to run with an xdebug-disabled `php.ini` file.
+Running php without a `php.ini` file should also do the trick in most cases.
+
+Example:
+
+```sh
+# Without php.ini
+alias comp='php -n /path/to/composer.phar'
+# Or with an xdebug-disabled php.ini
+alias comp='php -c /path/to/xdebug-disabled-php.ini /path/to/composer.phar'
+```
+
+As a workaround in bash (and other shells) you can create a function which is named `composer`,
+which disables xdebug before it executes composer, and then enables it afterwards.
+
+Create a function in a file read by bash, like `~/.bashrc` or `~/.bash_aliases` depending on
+your setup. This also assumes that you have sudo privileges and the `php5enmod` and `php5dismod`
+commands available. It also assumes that you have `composer` in your path.
+
+```sh
+echo 'function composer() { COMPOSER="$(which composer)" || { echo "Could not find composer in path" >&2 ; return 1 ; } && sudo php5dismod -s cli xdebug ; $COMPOSER "$@" ; STATUS=$? ; sudo php5enmod -s cli xdebug ; return $STATUS ; }' >> ~/.bash_aliases
+. ~/.bash_aliases
+```
+
+On platforms without `php5enmod` and `php5dismod` you can run:
+
+```sh
+php --ini
+```
+
+To check where the PHP configuration is, and then use a similar script:
+
+```sh
+mkdir /usr/local/etc/php/7.0/conf.dis
+echo 'function composer() { COMPOSER="$(which composer)" || { echo "Could not find composer in path" >&2 ; return 1 ; } && mv /usr/local/etc/php/7.0/conf.d/ext-xdebug.ini /usr/local/etc/php/7.0/conf.dis ; $COMPOSER "$@" ; STATUS=$? ; mv /usr/local/etc/php/7.0/conf.dis/ext-xdebug.ini /usr/local/etc/php/7.0/conf.d ; return $STATUS ; }' >> ~/.bash_aliases
+. ~/.bash_aliases
+```
+
+In the example above, we have PHP 7.0 installed on a Mac with Homebrew (which doesn't have the stated commands and places the configurations on a folder where there is no need for sudo permissions.
+
+When executing `composer` you will run it with xdebug **disabled** (**as long as the command is executing**),
+and if you execute composer using explicit path (like `./composer` or `/usr/local/bin/composer`)
+xdebug will be **enabled**.
+
 If you do not want to disable it and want to get rid of the warning you can also define the
 [COMPOSER_DISABLE_XDEBUG_WARN](../03-cli.md#composer-disable-xdebug-warn) environment variable.
 
@@ -209,7 +253,7 @@ for authentication asking your username and password so it can go ahead with its
 If you would prefer not to provide your GitHub credentials to Composer you can
 manually create a token using the following procedure:
 
-1. [Create](https://github.com/settings/applications) an OAuth token on GitHub.
+1. [Create](https://github.com/settings/tokens) an OAuth token on GitHub.
 [Read more](https://github.com/blog/1509-personal-api-tokens) on this.
 
 2. Add it to the configuration running `composer config -g github-oauth.github.com <oauthtoken>`
@@ -258,9 +302,81 @@ If you have been pointed to this page, you want to check a few things:
   with your ISP or server host, the problem is not at the Packagist level but in the
   routing rules between you and Packagist (i.e. the internet at large). The best way to get
   these fixed is raise awareness to the network engineers that have the power to fix it.
+  Take a look at the next section for IPv6 workarounds.
 
-  To disable IPv6 on Linux, try using this command which appends a
-  rule preferring IPv4 over IPv6 to your config:
-
-  `sudo sh -c "echo 'precedence ::ffff:0:0/96 100' >> /etc/gai.conf"`
 - If none of the above helped, please report the error.
+
+## Operation timed out (IPv6 issues)
+
+You may run into errors if IPv6 is not configured correctly. A common error is:
+
+```
+The "https://getcomposer.org/version" file could not be downloaded: failed to
+open stream: Operation timed out
+```
+
+We recommend you fix your IPv6 setup. If that is not possible, you can try the
+following workarounds:
+
+**Workaround Linux:**
+
+On linux, it seems that running this command helps to make ipv4 traffic have a
+higher prio than ipv6, which is a better alternative than disabling ipv6 entirely:
+
+```Bash
+sudo sh -c "echo 'precedence ::ffff:0:0/96 100' >> /etc/gai.conf"
+```
+
+**Workaround Windows:**
+
+On windows the only way is to disable ipv6 entirely I am afraid (either in windows or in your home router).
+
+**Workaround Mac OS X:**
+
+Get name of your network device:
+
+```
+networksetup -listallnetworkservices
+```
+
+Disable IPv6 on that device (in this case "Wi-Fi"):
+
+```
+networksetup -setv6off Wi-Fi
+```
+
+Run composer ...
+
+You can enable IPv6 again with:
+
+```
+networksetup -setv6automatic Wi-Fi
+```
+
+That said, if this fixes your problem, please talk to your ISP about it to
+try and resolve the routing errors. That's the best way to get things resolved
+for everyone.
+
+## Composer hangs with SSH ControlMaster
+
+When you try to install packages from a Git repository and you use the `ControlMaster`
+setting for you SSH connection  Composer might just hang endlessly and you see a `sh`
+process in the `defunct` state in your process list
+
+The reason for this is a SSH Bug: https://bugzilla.mindrot.org/show_bug.cgi?id=1988
+
+As a workaround, open a SSH connection to your Git host before running Composer:
+
+```
+ssh -t git@mygitserver.tld
+composer update
+```
+
+See also https://github.com/composer/composer/issues/4180 for more information.
+
+## Zip archives are not unpacked correctly.
+
+Composer can unpack zipballs using either a system-provided `unzip` utility or PHP's
+native `ZipArchiver` class. The `ZipArchiver` class is preferred on Windows. On other
+OSes where ZIP files can contain permissions and symlinks, the `unzip` utility is
+preferred. You're advised to install it if you need these features.

@@ -22,14 +22,15 @@ use Composer\Util\ConfigValidator;
 use Composer\Util\ProcessExecutor;
 use Composer\Util\RemoteFilesystem;
 use Composer\Util\StreamContextFactory;
-use Composer\Util\Keys;
+use Composer\SelfUpdate\Keys;
+use Composer\SelfUpdate\Versions;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * @author Jordi Boggiano <j.boggiano@seld.be>
  */
-class DiagnoseCommand extends Command
+class DiagnoseCommand extends BaseCommand
 {
     /** @var RemoteFileSystem */
     protected $rfs;
@@ -74,6 +75,8 @@ EOT
         } else {
             $config = Factory::createConfig();
         }
+
+        $config->merge(array('config' => array('secure-http' => false)));
 
         $this->rfs = Factory::createRemoteFilesystem($io, $config);
         $this->process = new ProcessExecutor($io);
@@ -134,11 +137,13 @@ EOT
         $io->write('Checking disk free space: ', false);
         $this->outputResult($this->checkDiskSpace($config));
 
-        $io->write('Checking pubkeys: ', false);
-        $this->outputResult($this->checkPubKeys($config));
+        if ('phar:' === substr(__FILE__, 0, 5)) {
+            $io->write('Checking pubkeys: ', false);
+            $this->outputResult($this->checkPubKeys($config));
 
-        $io->write('Checking composer version: ', false);
-        $this->outputResult($this->checkVersion());
+            $io->write('Checking composer version: ', false);
+            $this->outputResult($this->checkVersion($config));
+        }
 
         return $this->failures;
     }
@@ -286,7 +291,7 @@ EOT
     {
         $this->getIO()->setAuthentication($domain, $token, 'x-oauth-basic');
         try {
-            $url = $domain === 'github.com' ? 'https://api.'.$domain.'/user/repos' : 'https://'.$domain.'/api/v3/user/repos';
+            $url = $domain === 'github.com' ? 'https://api.'.$domain.'/' : 'https://'.$domain.'/api/v3/';
 
             return $this->rfs->getContents($domain, $url, false, array(
                 'retry-auth-failure' => false,
@@ -360,13 +365,13 @@ EOT
         return $errors ?: true;
     }
 
-    private function checkVersion()
+    private function checkVersion($config)
     {
-        $protocol = extension_loaded('openssl') ? 'https' : 'http';
-        $latest = trim($this->rfs->getContents('getcomposer.org', $protocol . '://getcomposer.org/version', false));
+        $versionsUtil = new Versions($config, $this->rfs);
+        $latest = $versionsUtil->getLatest();
 
-        if (Composer::VERSION !== $latest && Composer::VERSION !== '@package_version@') {
-            return '<comment>You are not running the latest version, run `composer self-update` to update</comment>';
+        if (Composer::VERSION !== $latest['version'] && Composer::VERSION !== '@package_version@') {
+            return '<comment>You are not running the latest '.$versionsUtil->getChannel().' version, run `composer self-update` to update ('.Composer::VERSION.' => '.$latest['version'].')</comment>';
         }
 
         return true;
@@ -433,6 +438,10 @@ EOT
             $errors['hash'] = true;
         }
 
+        if (!extension_loaded('iconv') && !extension_loaded('mbstring')) {
+            $errors['iconv_mbstring'] = true;
+        }
+
         if (!ini_get('allow_url_fopen')) {
             $errors['allow_url_fopen'] = true;
         }
@@ -451,6 +460,10 @@ EOT
 
         if (!extension_loaded('openssl')) {
             $errors['openssl'] = true;
+        }
+
+        if (extension_loaded('openssl') && OPENSSL_VERSION_NUMBER < 0x1000100f) {
+            $warnings['openssl_version'] = true;
         }
 
         if (!defined('HHVM_VERSION') && !extension_loaded('apcu') && ini_get('apc.enable_cli')) {
@@ -499,6 +512,11 @@ EOT
                     case 'hash':
                         $text = PHP_EOL."The hash extension is missing.".PHP_EOL;
                         $text .= "Install it or recompile php without --disable-hash";
+                        break;
+
+                    case 'iconv_mbstring':
+                        $text = PHP_EOL."The iconv OR mbstring extension is required and both are missing.".PHP_EOL;
+                        $text .= "Install either of them or recompile php without --disable-iconv";
                         break;
 
                     case 'unicode':
@@ -568,6 +586,15 @@ EOT
                     case 'php':
                         $text  = "Your PHP ({$current}) is quite old, upgrading to PHP 5.3.4 or higher is recommended.".PHP_EOL;
                         $text .= " Composer works with 5.3.2+ for most people, but there might be edge case issues.";
+                        break;
+
+                    case 'openssl_version':
+                        // Attempt to parse version number out, fallback to whole string value.
+                        $opensslVersion = strstr(trim(strstr(OPENSSL_VERSION_TEXT, ' ')), ' ', true);
+                        $opensslVersion = $opensslVersion ?: OPENSSL_VERSION_TEXT;
+
+                        $text = "The OpenSSL library ({$opensslVersion}) used by PHP does not support TLSv1.2 or TLSv1.1.".PHP_EOL;
+                        $text .= "If possible you should upgrade OpenSSL to version 1.0.1 or above.";
                         break;
 
                     case 'xdebug_loaded':

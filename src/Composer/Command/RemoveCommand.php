@@ -27,7 +27,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * @author Pierre du Plessis <pdples@gmail.com>
  * @author Jordi Boggiano <j.boggiano@seld.be>
  */
-class RemoveCommand extends Command
+class RemoveCommand extends BaseCommand
 {
     protected function configure()
     {
@@ -40,7 +40,8 @@ class RemoveCommand extends Command
                 new InputOption('no-progress', null, InputOption::VALUE_NONE, 'Do not output download progress.'),
                 new InputOption('no-update', null, InputOption::VALUE_NONE, 'Disables the automatic update of the dependencies.'),
                 new InputOption('update-no-dev', null, InputOption::VALUE_NONE, 'Run the dependency update with the --no-dev option.'),
-                new InputOption('update-with-dependencies', null, InputOption::VALUE_NONE, 'Allows inherited dependencies to be updated with explicit dependencies.'),
+                new InputOption('update-with-dependencies', null, InputOption::VALUE_NONE, 'Allows inherited dependencies to be updated with explicit dependencies. (Deprecrated, is now default behavior)'),
+                new InputOption('no-update-with-dependencies', null, InputOption::VALUE_NONE, 'Does not allow inherited dependencies to be updated with explicit dependencies.'),
                 new InputOption('ignore-platform-reqs', null, InputOption::VALUE_NONE, 'Ignore platform requirements (php & ext- packages).'),
                 new InputOption('optimize-autoloader', 'o', InputOption::VALUE_NONE, 'Optimize autoloader during autoloader dump'),
                 new InputOption('classmap-authoritative', 'a', InputOption::VALUE_NONE, 'Autoload classes from the classmap only. Implicitly enables `--optimize-autoloader`.'),
@@ -72,6 +73,10 @@ EOT
         $altType = !$input->getOption('dev') ? 'require-dev' : 'require';
         $io = $this->getIO();
 
+        if ($input->getOption('update-with-dependencies')) {
+            $io->writeError('<warning>You are using the deprecated option "update-with-dependencies". This is now default behaviour. The --no-update-with-dependencies option can be used to remove a package without its dependencies.</warning>');
+        }
+
         foreach ($packages as $package) {
             if (isset($composer[$type][$package])) {
                 $json->removeLink($type, $package);
@@ -92,7 +97,8 @@ EOT
         }
 
         // Update packages
-        $composer = $this->getComposer();
+        $this->resetComposer();
+        $composer = $this->getComposer(true, $input->getOption('no-plugins'));
         $composer->getDownloadManager()->setOutputProgress(!$input->getOption('no-progress'));
 
         $commandEvent = new CommandEvent(PluginEvents::COMMAND, 'remove', $input, $output);
@@ -111,14 +117,22 @@ EOT
             ->setClassMapAuthoritative($authoritative)
             ->setUpdate(true)
             ->setUpdateWhitelist($packages)
-            ->setWhitelistDependencies($input->getOption('update-with-dependencies'))
+            ->setWhitelistDependencies(!$input->getOption('no-update-with-dependencies'))
             ->setIgnorePlatformRequirements($input->getOption('ignore-platform-reqs'))
         ;
 
-        $status = $install->run();
+        $exception = null;
+        try {
+            $status = $install->run();
+        } catch (\Exception $exception) {
+            $status = 1;
+        }
         if ($status !== 0) {
             $io->writeError("\n".'<error>Removal failed, reverting '.$file.' to its original content.</error>');
             file_put_contents($jsonFile->getPath(), $composerBackup);
+        }
+        if ($exception) {
+            throw $exception;
         }
 
         return $status;

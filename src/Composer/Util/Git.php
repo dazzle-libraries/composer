@@ -39,6 +39,9 @@ class Git
 
     public function runCommand($commandCallable, $url, $cwd, $initialClone = false)
     {
+        // Ensure we are allowed to use this URL by config
+        $this->config->prohibitUrlByConfig($url, $this->io);
+
         if ($initialClone) {
             $origCwd = $cwd;
             $cwd = null;
@@ -60,28 +63,27 @@ class Git
         if (!is_array($protocols)) {
             throw new \RuntimeException('Config value "github-protocols" must be an array, got '.gettype($protocols));
         }
-
         // public github, autoswitch protocols
         if (preg_match('{^(?:https?|git)://'.self::getGitHubDomainsRegex($this->config).'/(.*)}', $url, $match)) {
             $messages = array();
             foreach ($protocols as $protocol) {
                 if ('ssh' === $protocol) {
-                    $url = "git@" . $match[1] . ":" . $match[2];
+                    $protoUrl = "git@" . $match[1] . ":" . $match[2];
                 } else {
-                    $url = $protocol ."://" . $match[1] . "/" . $match[2];
+                    $protoUrl = $protocol ."://" . $match[1] . "/" . $match[2];
                 }
 
-                if (0 === $this->process->execute(call_user_func($commandCallable, $url), $ignoredOutput, $cwd)) {
+                if (0 === $this->process->execute(call_user_func($commandCallable, $protoUrl), $ignoredOutput, $cwd)) {
                     return;
                 }
-                $messages[] = '- ' . $url . "\n" . preg_replace('#^#m', '  ', $this->process->getErrorOutput());
+                $messages[] = '- ' . $protoUrl . "\n" . preg_replace('#^#m', '  ', $this->process->getErrorOutput());
                 if ($initialClone) {
                     $this->filesystem->removeDirectory($origCwd);
                 }
             }
 
             // failed to checkout, first check git accessibility
-            $this->throwException('Failed to clone ' . self::sanitizeUrl($url) .' via '.implode(', ', $protocols).' protocols, aborting.' . "\n\n" . implode("\n", $messages), $url);
+            $this->throwException('Failed to clone ' . $url .' via '.implode(', ', $protocols).' protocols, aborting.' . "\n\n" . implode("\n", $messages), $url);
         }
 
         // if we have a private github url and the ssh protocol is disabled then we skip it and directly fallback to https
@@ -104,8 +106,45 @@ class Git
 
                 if ($this->io->hasAuthentication($match[1])) {
                     $auth = $this->io->getAuthentication($match[1]);
-                    $url = 'https://'.rawurlencode($auth['username']) . ':' . rawurlencode($auth['password']) . '@'.$match[1].'/'.$match[2].'.git';
-                    $command = call_user_func($commandCallable, $url);
+                    $authUrl = 'https://' . rawurlencode($auth['username']) . ':' . rawurlencode($auth['password']) . '@' . $match[1] . '/' . $match[2] . '.git';
+                    $command = call_user_func($commandCallable, $authUrl);
+                    if (0 === $this->process->execute($command, $ignoredOutput, $cwd)) {
+                        return;
+                    }
+                }
+            } elseif (preg_match('{^https://(bitbucket\.org)/(.*)(\.git)?$}U', $url, $match)) { //bitbucket oauth
+                $bitbucketUtil = new Bitbucket($this->io, $this->config, $this->process);
+
+                if (!$this->io->hasAuthentication($match[1])) {
+                    $message = 'Enter your Bitbucket credentials to access private repos';
+
+                    if (!$bitbucketUtil->authorizeOAuth($match[1]) && $this->io->isInteractive()) {
+                        $bitbucketUtil->authorizeOAuthInteractively($match[1], $message);
+                        $token = $bitbucketUtil->getToken();
+                        $this->io->setAuthentication($match[1], 'x-token-auth', $token['access_token']);
+                    }
+                } else { //We're authenticating with a locally stored consumer.
+                    $auth = $this->io->getAuthentication($match[1]);
+
+                    //We already have an access_token from a previous request.
+                    if ($auth['username'] !== 'x-token-auth') {
+                        $token = $bitbucketUtil->requestToken($match[1], $auth['username'], $auth['password']);
+                        $this->io->setAuthentication($match[1], 'x-token-auth', $token['access_token']);
+                    }
+                }
+
+                if ($this->io->hasAuthentication($match[1])) {
+                    $auth = $this->io->getAuthentication($match[1]);
+                    $authUrl = 'https://' . rawurlencode($auth['username']) . ':' . rawurlencode($auth['password']) . '@' . $match[1] . '/' . $match[2] . '.git';
+
+                    $command = call_user_func($commandCallable, $authUrl);
+                    if (0 === $this->process->execute($command, $ignoredOutput, $cwd)) {
+                        return;
+                    }
+                } else { // Falling back to ssh
+                    $sshUrl = 'git@bitbucket.org:' . $match[2] . '.git';
+                    $this->io->writeError('    No bitbucket authentication configured. Falling back to ssh.');
+                    $command = call_user_func($commandCallable, $sshUrl);
                     if (0 === $this->process->execute($command, $ignoredOutput, $cwd)) {
                         return;
                     }
@@ -137,9 +176,9 @@ class Git
                 }
 
                 if ($auth) {
-                    $url = $match[1].rawurlencode($auth['username']).':'.rawurlencode($auth['password']).'@'.$match[2].$match[3];
+                    $authUrl = $match[1].rawurlencode($auth['username']).':'.rawurlencode($auth['password']).'@'.$match[2].$match[3];
 
-                    $command = call_user_func($commandCallable, $url);
+                    $command = call_user_func($commandCallable, $authUrl);
                     if (0 === $this->process->execute($command, $ignoredOutput, $cwd)) {
                         $this->io->setAuthentication($match[2], $auth['username'], $auth['password']);
                         $authHelper = new AuthHelper($this->io, $this->config);
@@ -153,7 +192,7 @@ class Git
             if ($initialClone) {
                 $this->filesystem->removeDirectory($origCwd);
             }
-            $this->throwException('Failed to execute ' . self::sanitizeUrl($command) . "\n\n" . $this->process->getErrorOutput(), $url);
+            $this->throwException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput(), $url);
         }
     }
 
@@ -212,7 +251,13 @@ class Git
 
     public static function sanitizeUrl($message)
     {
-        return preg_replace('{://([^@]+?):.+?@}', '://$1:***@', $message);
+        return preg_replace_callback('{://(?P<user>[^@]+?):(?P<password>.+?)@}', function ($m) {
+            if (preg_match('{^[a-f0-9]{12,}$}', $m[1])) {
+                return '://***:***@';
+            }
+
+            return '://'.$m[1].':***@';
+        }, $message);
     }
 
     private function throwException($message, $url)
@@ -221,9 +266,9 @@ class Git
         clearstatcache();
 
         if (0 !== $this->process->execute('git --version', $ignoredOutput)) {
-            throw new \RuntimeException('Failed to clone '.self::sanitizeUrl($url).', git was not found, check that it is installed and in your PATH env.' . "\n\n" . $this->process->getErrorOutput());
+            throw new \RuntimeException(self::sanitizeUrl('Failed to clone '.$url.', git was not found, check that it is installed and in your PATH env.' . "\n\n" . $this->process->getErrorOutput()));
         }
 
-        throw new \RuntimeException($message);
+        throw new \RuntimeException(self::sanitizeUrl($message));
     }
 }

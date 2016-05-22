@@ -102,9 +102,9 @@ class GitHub
         $this->io->setAuthentication($originUrl, $token, 'x-oauth-basic');
 
         try {
-            $apiUrl = ('github.com' === $originUrl) ? 'api.github.com' : $originUrl . '/api/v3';
+            $apiUrl = ('github.com' === $originUrl) ? 'api.github.com/' : $originUrl . '/api/v3/';
 
-            $this->remoteFilesystem->getContents($originUrl, 'https://'. $apiUrl . '/rate_limit', false, array(
+            $this->remoteFilesystem->getContents($originUrl, 'https://'. $apiUrl, false, array(
                 'retry-auth-failure' => false,
             ));
         } catch (TransportException $e) {
